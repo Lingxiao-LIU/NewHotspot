@@ -1,16 +1,14 @@
-# test_hotspot.py
 import anndata
 import pandas as pd
 import numpy as np
-import sys
-from hotspot import Hotspot
 
 # Load data
 PDAC = anndata.read_h5ad('C:/Users/linliu/ad_PDAC/PDAC_SIMVI.h5ad')
 PDAC.obs['total_counts'] = np.sum(PDAC.layers['counts'], axis=1)
 print("Batch distribution:", PDAC.obs['patient'].value_counts())
 
-# Initialize Hotspot
+# Initialize Hotspot from the installed package
+from hotspotsc import Hotspot  # Changed from hotspot to hotspotsc
 hs = Hotspot(
     PDAC,
     layer_key='counts',
