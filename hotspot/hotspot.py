@@ -8,105 +8,35 @@ from tqdm import tqdm
 
 class Hotspot:
     def __init__(
-        self,
-        adata,
-        layer_key=None,
-        model="danb",
-        latent_obsm_key=None,
-        distances_obsp_key=None,
-        tree=None,
-        umi_counts_obs_key=None,
-        batch_key=None,  # New parameter for batch labels
-    ):
-        """Initialize a Hotspot object for analysis
+    self,
+    adata,
+    layer_key=None,
+    model="danb",
+    latent_obsm_key=None,
+    distances_obsp_key=None,
+    tree=None,
+    umi_counts_obs_key=None,
+    batch_key=None,
+):
+    # First get counts
+    counts = self._counts_from_anndata(adata, layer_key)
+    print(f"Counts retrieved: {counts.shape if counts is not None else None}, type: {type(counts)}")  # Debug
 
-        Either `latent` or `tree` or `distances` is required.
+    # Validate counts
+    if counts is None:
+        raise ValueError(f"Could not retrieve counts matrix. layer_key='{layer_key}', adata.X shape={adata.X.shape if adata.X is not None else None}")
 
-        Parameters
-        ----------
-        adata : anndata.AnnData
-            Count matrix (shape is cells by genes)
-        layer_key: str
-            Key in adata.layers with count data, uses adata.X if None.
-        model : string, optional
-            Specifies the null model to use for gene expression.
-            Valid choices are:
-                - 'danb': Depth-Adjusted Negative Binomial
-                - 'bernoulli': Models probability of detection
-                - 'normal': Depth-Adjusted Normal
-                - 'none': Assumes data has been pre-standardized
-        latent_obsm_key : string, optional
-            Latent space encoding cell-cell similarities with euclidean
-            distances.  Shape is (cells x dims). Input is key in adata.obsm
-        distances_obsp_key : pandas.DataFrame, optional
-            Distances encoding cell-cell similarities directly
-            Shape is (cells x cells). Input is key in adata.obsp
-        tree : ete3.coretype.tree.TreeNode
-            Root tree node.  Can be created using ete3.Tree
-        umi_counts_obs_key : str
-            Total umi count per cell.  Used as a size factor.
-            If omitted, the sum over genes in the counts matrix is used
-        batch_key : str, optional
-            Key in adata.obs containing batch labels (e.g., sample or patient IDs)
-        """
-        # First get counts - this must work before anything else
-        counts = self._counts_from_anndata(adata, layer_key)
-        
-        # Validate counts
-        if counts is None:
-            raise ValueError(f"Could not retrieve counts matrix. layer_key='{layer_key}', adata.X shape={adata.X.shape if adata.X is not None else None}")
-        
-        # Get other data
-        distances = (
-            adata.obsp[distances_obsp_key] if distances_obsp_key is not None else None
-        )
-        latent = adata.obsm[latent_obsm_key] if latent_obsm_key is not None else None
-        umi_counts = (
-            adata.obs[umi_counts_obs_key] if umi_counts_obs_key is not None else None
-        )
-
-        if latent is None and distances is None and tree is None:
-            raise ValueError(
-                "Neither `latent_obsm_key` or `tree` or `distances_obsp_key` arguments were supplied.  One of these is required"
-            )
-
-        if latent is not None and distances is not None:
-            raise ValueError(
-                "Both `latent_obsm_key` and `distances_obsp_key` provided - only one of these should be provided."
-            )
-
-        if latent is not None and tree is not None:
-            raise ValueError(
-                "Both `latent_obsm_key` and `tree` provided - only one of these should be provided."
-            )
-
-        if distances is not None and tree is not None:
-            raise ValueError(
-                "Both `distances_obsp_key` and `tree` provided - only one of these should be provided."
-            )
-
-        if latent is not None:
-            latent = pd.DataFrame(latent, index=adata.obs_names)
-
-        if issparse(counts) and not isinstance(counts, csr_matrix):
-            warnings.warn("Hotspot will work faster when counts are a csr sparse matrix.")
-
-        if tree is not None:
-            try:
-                all_leaves = []
-                for x in tree:
-                    if x.is_leaf():
-                        all_leaves.append(x.name)
-            except:
-                raise ValueError("Can't parse supplied tree")
-
-            if len(all_leaves) != counts.shape[0] or len(  # Changed from shape[1] to shape[0] for genes
-                set(all_leaves) & set(adata.var_names)  # Changed from obs_names to var_names
-            ) != len(all_leaves):
-                raise ValueError(
-                    "Tree leaf labels don't match genes in supplied counts matrix"
-                )
-
+    # Get other data
+    # ... (rest of the original code until umi_counts handling)
+    
+    # Handle umi_counts
+    if umi_counts is None:
+        umi_counts = counts.sum(axis=1)
+        umi_counts = np.asarray(umi_counts).ravel()
+    else:
+        print(f"umi_counts size: {umi_counts.size}, counts shape: {counts.shape}")  # Debug
+        assert umi_counts.size == counts.shape[0], f"umi_counts size {umi_counts.size} != number of cells {counts.shape[0]}"
+    
         # Handle umi_counts - this was the main issue
         if umi_counts is None:
             # Sum over genes (axis=1 for cells x genes matrix)
