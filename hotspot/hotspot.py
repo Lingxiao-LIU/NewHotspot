@@ -165,10 +165,20 @@ class Hotspot:
         # Existing legacy_init implementation remains unchanged
         pass
 
+
     @staticmethod
     def _counts_from_anndata(adata, layer_key, dense=False, pandas=False):
-        # Existing _counts_from_anndata implementation remains unchanged
-        pass
+    if layer_key is not None:
+        counts = adata.layers[layer_key]
+    else:
+        counts = adata.X
+    if counts is None:
+        raise ValueError(f"Counts matrix is None. layer_key='{layer_key}', adata.X shape={adata.X.shape if adata.X is not None else None}")
+    if dense and issparse(counts):
+        counts = counts.toarray()
+    if pandas:
+        counts = pd.DataFrame(counts, index=adata.obs_names, columns=adata.var_names)
+    return counts
 
     def create_knn_graph(
         self,
