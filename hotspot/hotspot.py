@@ -16,6 +16,7 @@ from .plots import local_correlation_plot
 from tqdm import tqdm
 from sklearn.neighbors import NearestNeighbors
 from joblib import Parallel, delayed
+from scipy.stats import zscore
 
 class Hotspot:
     def __init__(
