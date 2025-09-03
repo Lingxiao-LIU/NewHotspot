@@ -100,10 +100,10 @@ class Hotspot:
                     "Tree leaf labels don't match columns in supplied counts matrix"
                 )
         if umi_counts is None:
-            umi_counts = counts.sum(axis=0)
+            umi_counts = counts.sum(axis=1)  # Sum over genes (axis=1)
             umi_counts = np.asarray(umi_counts).ravel()
         else:
-            assert umi_counts.size == counts.shape[1]
+            assert umi_counts.size == counts.shape[0]  # Match cells
         if not isinstance(umi_counts, pd.Series):
             umi_counts = pd.Series(umi_counts, index=adata.obs_names)
         valid_models = {"danb", "bernoulli", "normal", "none"}
@@ -139,11 +139,12 @@ class Hotspot:
 
     @staticmethod
     def _counts_from_anndata(adata, layer_key, dense=False, pandas=False):
+        """Extract counts matrix from AnnData object"""
         counts = adata.layers[layer_key] if layer_key is not None else adata.X
         is_sparse = issparse(counts)
         if not issparse(counts):
             counts = np.asarray(counts)
-        counts = counts.transpose()
+        # Do not transpose counts (keep as cells x genes)
         if dense:
             counts = counts.toarray() if is_sparse else counts
             is_sparse = False
@@ -151,7 +152,7 @@ class Hotspot:
             raise ValueError("Set dense=True to return pandas output")
         if pandas and not is_sparse:
             counts = pd.DataFrame(
-                counts, index=adata.var_names, columns=adata.obs_names
+                counts, index=adata.obs_names, columns=adata.var_names
             )
         return counts
 
@@ -190,6 +191,8 @@ class Hotspot:
         if batch_aware:
             neighbors = pd.DataFrame(index=self.adata.obs_names, columns=range(n_neighbors), dtype=object)
             weights = pd.DataFrame(index=self.adata.obs_names, columns=range(n_neighbors), dtype=float)
+            index_map = {name: idx for idx, name in enumerate(self.adata.obs_names)}  # Map cell names to indices
+            neighbors_numeric = pd.DataFrame(index=self.adata.obs_names, columns=range(n_neighbors), dtype=np.int64)
             
             for batch in self.batches.unique():
                 batch_mask = self.batches == batch
@@ -212,7 +215,9 @@ class Hotspot:
                 
                 for i, cell_idx in enumerate(batch_indices):
                     neighbor_indices = [batch_indices[j] for j in indices[i]]
+                    neighbor_indices_numeric = [index_map[batch_indices[j]] for j in indices[i]]
                     neighbors.loc[cell_idx, :n_neighbors_batch] = neighbor_indices
+                    neighbors_numeric.loc[cell_idx, :n_neighbors_batch] = neighbor_indices_numeric
                     
                     if weighted_graph:
                         max_dist = distances[i, -1] if distances[i, -1] > 0 else 1.0
@@ -221,6 +226,7 @@ class Hotspot:
                         weights.loc[cell_idx, :n_neighbors_batch] = 1.0
             
             neighbors = neighbors.fillna(-1).astype(object)
+            neighbors_numeric = neighbors_numeric.fillna(-1).astype(np.int64)
             weights = weights.fillna(0.0)
         
         else:
@@ -231,6 +237,8 @@ class Hotspot:
                     neighborhood_factor=neighborhood_factor,
                     approx_neighbors=approx_neighbors,
                 )
+                index_map = {name: idx for idx, name in enumerate(self.adata.obs_names)}
+                neighbors_numeric = neighbors.apply(lambda x: [index_map.get(n, -1) for n in x]).astype(np.int64)
             elif self.tree is not None:
                 if weighted_graph:
                     raise ValueError(
@@ -239,6 +247,8 @@ class Hotspot:
                 neighbors, weights = tree_neighbors_and_weights(
                     self.tree, n_neighbors=n_neighbors, cell_labels=self.adata.obs_names
                 )
+                index_map = {name: idx for idx, name in enumerate(self.adata.obs_names)}
+                neighbors_numeric = neighbors.apply(lambda x: [index_map.get(n, -1) for n in x]).astype(np.int64)
             else:
                 neighbors, weights = neighbors_and_weights_from_distances(
                     self.distances,
@@ -246,6 +256,8 @@ class Hotspot:
                     n_neighbors=n_neighbors,
                     neighborhood_factor=neighborhood_factor,
                 )
+                index_map = {name: idx for idx, name in enumerate(self.adata.obs_names)}
+                neighbors_numeric = neighbors.apply(lambda x: [index_map.get(n, -1) for n in x]).astype(np.int64)
 
         neighbors = neighbors.loc[self.adata.obs_names]
         weights = weights.loc[self.adata.obs_names]
@@ -258,12 +270,15 @@ class Hotspot:
                 columns=weights.columns,
             )
         
-        weights = make_weights_non_redundant(neighbors.values, weights.values)
+        weights = make_weights_non_redundant(neighbors_numeric.values, weights.values)
         weights = pd.DataFrame(
             weights, index=neighbors.index, columns=neighbors.columns
         )
+        self.neighbors_numeric = neighbors_numeric
         self.weights = weights
         return self.neighbors, self.weights
+    
+
 
     def compute_autocorrelations(self, jobs=1):
         """Compute spatial autocorrelation (Moran's I) for each gene using the k-NN graph.
@@ -285,7 +300,7 @@ class Hotspot:
         counts = self.counts
         if issparse(counts):
             counts = counts.toarray()
-        detection_prob = counts / self.umi_counts.values[:, None]
+        detection_prob = counts / self.umi_counts.values[:, None]  # Shape: (cells, genes)
         
         # Initialize results
         n_genes = counts.shape[1]
@@ -335,6 +350,7 @@ class Hotspot:
         tree=None,
         umi_counts=None,
     ):
+        """Initialize a Hotspot object using legacy method (DataFrame inputs)"""
         if latent is None and distances is None and tree is None:
             raise ValueError(
                 "Neither `latent` or `tree` or `distance` arguments were supplied. One of these is required"
@@ -352,30 +368,25 @@ class Hotspot:
                 "Both `distances` and `tree` provided - only one of these should be provided."
             )
         if latent is not None:
-            if counts.shape[1] != latent.shape[0]:
-                if counts.shape[0] == latent.shape[0]:
-                    raise ValueError(
-                        "`counts` input should be a Genes x Cells dataframe. Maybe needs transpose?"
-                    )
+            if counts.shape[0] != latent.shape[0]:
                 raise ValueError(
-                    "Size mismatch counts/latent. Columns of `counts` should match rows of `latent`."
+                    "Size mismatch counts/latent. Rows of `counts` should match rows of `latent`."
                 )
         if distances is not None:
-            assert counts.shape[1] == distances.shape[0]
-            assert counts.shape[1] == distances.shape[1]
+            assert counts.shape[0] == distances.shape[0]
+            assert counts.shape[0] == distances.shape[1]
         if umi_counts is None:
-            umi_counts = counts.sum(axis=0)
+            umi_counts = counts.sum(axis=1)
         else:
-            assert umi_counts.size == counts.shape[1]
+            assert umi_counts.size == counts.shape[0]
         if not isinstance(umi_counts, pd.Series):
             umi_counts = pd.Series(umi_counts)
-        valid_genes = counts.var(axis=1) > 0
-        n_invalid = counts.shape[0] - valid_genes.sum()
+        valid_genes = counts.var(axis=0) > 0
+        n_invalid = counts.shape[1] - valid_genes.sum()
         if n_invalid > 0:
-            counts = counts.loc[valid_genes]
+            counts = counts.loc[:, valid_genes]
             print("\nRemoving {} undetected/non-varying genes".format(n_invalid))
         input_adata = anndata.AnnData(counts)
-        input_adata = input_adata.transpose()
         tc_key = "total_counts"
         input_adata.obs[tc_key] = umi_counts.values
         dkey = "distances"
@@ -400,9 +411,22 @@ class Hotspot:
         )
 
     def _compute_hotspot(self, jobs=1):
+        """Perform feature selection using local autocorrelation"""
+        # Convert neighbors to numeric if needed
+        if hasattr(self, 'neighbors_numeric'):
+            neighbors_for_compute = self.neighbors_numeric
+        else:
+            name_to_idx = {name: idx for idx, name in enumerate(self.adata.obs_names)}
+            neighbors_for_compute = self.neighbors.applymap(
+                lambda x: name_to_idx.get(x, -1) if x != -1 else -1
+            )
+        
+        # TRANSPOSE the counts matrix to genes × cells
+        counts_transposed = self.counts.T  # Now shape: (genes, cells)
+        
         results = compute_hs(
-            self.counts,
-            self.neighbors,
+            counts_transposed,  # Use transposed version
+            neighbors_for_compute,
             self.weights,
             self.umi_counts,
             self.model,
@@ -414,6 +438,7 @@ class Hotspot:
         return self.results
 
     def compute_local_correlations(self, genes, jobs=1):
+        """Define gene-gene relationships with pair-wise local correlations"""
         print(
             "Computing pair-wise local correlation on {} features...".format(len(genes))
         )
@@ -423,9 +448,22 @@ class Hotspot:
             dense=True,
             pandas=True,
         )
+        
+        # TRANSPOSE to genes × cells (this is the key fix)
+        counts_dense = counts_dense.T
+        
+        # Convert neighbors to numeric if needed
+        if hasattr(self, 'neighbors_numeric'):
+            neighbors_for_compute = self.neighbors_numeric
+        else:
+            name_to_idx = {name: idx for idx, name in enumerate(self.adata.obs_names)}
+            neighbors_for_compute = self.neighbors.applymap(
+                lambda x: name_to_idx.get(x, -1) if x != -1 else -1
+            ).astype(np.int64)
+        
         lc, lcz = compute_hs_pairs_centered_cond(
-            counts_dense,
-            self.neighbors,
+            counts_dense,  # Now correctly oriented
+            neighbors_for_compute,
             self.weights,
             self.umi_counts,
             self.model,
@@ -436,6 +474,7 @@ class Hotspot:
         return self.local_correlation_z
 
     def create_modules(self, min_gene_threshold=20, core_only=True, fdr_threshold=0.05):
+        """Groups genes into modules"""
         gene_modules, Z = modules.compute_modules(
             self.local_correlation_z,
             min_gene_threshold=min_gene_threshold,
@@ -447,6 +486,7 @@ class Hotspot:
         return self.modules
 
     def calculate_module_scores(self):
+        """Calculate Module Scores"""
         modules_to_compute = sorted([x for x in self.modules.unique() if x != -1])
         print("Computing scores for {} modules...".format(len(modules_to_compute)))
         module_scores = {}
@@ -471,6 +511,7 @@ class Hotspot:
     def plot_local_correlations(
         self, mod_cmap="tab10", vmin=-8, vmax=8, z_cmap="RdBu_r", yticklabels=False
     ):
+        """Plots a clustergrid of the local correlation values"""
         return local_correlation_plot(
             self.local_correlation_z,
             self.modules,
