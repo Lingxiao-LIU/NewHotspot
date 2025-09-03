@@ -9,21 +9,6 @@ authors = [{name = "David DeTomaso", email = "David.DeTomaso@berkeley.edu"}]
 description = "Identifying informative genes (and gene modules) in a single-cell dataset."
 readme = "README.md"
 license = {text = "MIT"}
-homepage = "https://github.com/yoseflab/hostpost"
-documentation = "https://hotspot.readthedocs.io/"
-classifiers = [
-    "Development Status :: 4 - Beta",
-    "Intended Audience :: Science/Research",
-    "Natural Language :: English",
-    "Programming Language :: Python :: 3.7",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
-    "Operating System :: MacOS :: MacOS X",
-    "Operating System :: Microsoft :: Windows",
-    "Operating System :: POSIX :: Linux",
-    "Topic :: Scientific/Engineering :: Bio-Informatics"
-]
-packages = [{include = "hotspot"}]
 requires-python = ">=3.7,<4.0"
 dependencies = [
     "anndata>=0.7",
@@ -39,10 +24,29 @@ dependencies = [
     "tqdm>=4.32.2",
     "importlib-metadata>1.0; python_version<'3.8'"
 ]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Natural Language :: English",
+    "Programming Language :: Python :: 3.7",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Operating System :: MacOS :: MacOS X",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Topic :: Scientific/Engineering :: Bio-Informatics"
+]
+
+[project.urls]
+Homepage = "https://github.com/yoseflab/hostpost"
+Documentation = "https://hotspot.readthedocs.io/"
 
 [project.optional-dependencies]
 test = ["pytest>=5.0", "scanpy"]
 docs = ["sphinx-book-theme>=0.2.0", "myst-nb", "sphinx>=4.1", "ipython"]
+
+[tool.setuptools]
+packages = ["hotspot"]
 
 [tool.isort]
 profile = "black"
