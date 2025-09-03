@@ -153,25 +153,29 @@ class Hotspot:
 
     @staticmethod
     def _counts_from_anndata(adata, layer_key, dense=False, pandas=False):
-        """Extract counts matrix from AnnData object"""
-        if layer_key is not None:
-            if layer_key not in adata.layers:
-                raise ValueError(f"Layer '{layer_key}' not found in adata.layers. Available layers: {list(adata.layers.keys())}")
-            counts = adata.layers[layer_key]
-        else:
-            counts = adata.X
-            
-        if counts is None:
-            raise ValueError(f"Counts matrix is None. layer_key='{layer_key}', adata.X shape={adata.X.shape if adata.X is not None else None}")
-            
-        if dense and issparse(counts):
-            counts = counts.toarray()
-            
-        if pandas:
-            counts = pd.DataFrame(counts, index=adata.obs_names, columns=adata.var_names)
-            
-        return counts
+    print(f"layer_key: {layer_key}")
+    print(f"Available layers: {adata.layers.keys()}")
+    print(f"adata.X: {adata.X.shape if adata.X is not None else None}")
+    if layer_key is not None:
+        print(f"Checking layer '{layer_key}' in adata.layers")
+        if layer_key not in adata.layers:
+            raise ValueError(f"Layer '{layer_key}' not found in adata.layers. Available layers: {list(adata.layers.keys())}")
+        counts = adata.layers[layer_key]
+        print(f"Retrieved counts from layer '{layer_key}': {counts.shape if counts is not None else None}, type: {type(counts)}")
+    else:
+        counts = adata.X
+        print(f"Retrieved counts from adata.X: {counts.shape if counts is not None else None}, type: {type(counts)}")
+    if counts is None:
+        raise ValueError(f"Counts matrix is None. layer_key='{layer_key}', adata.X shape={adata.X.shape if adata.X is not None else None}")
+    if dense and issparse(counts):
+        counts = counts.toarray()
+    if pandas:
+        counts = pd.DataFrame(counts, index=adata.obs_names, columns=adata.var_names)
+    print(f"Returning counts: {counts.shape if counts is not None else None}, type: {type(counts)}")
+    return counts
 
+
+    
     def create_knn_graph(
         self,
         weighted_graph=False,
