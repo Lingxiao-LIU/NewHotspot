@@ -3,7 +3,7 @@ import anndata
 import pandas as pd
 import numpy as np
 import sys
-from hotspot_modified import Hotspot
+from hotspot import Hotspot
 
 # Load data
 PDAC = anndata.read_h5ad('C:/Users/linliu/ad_PDAC/PDAC_SIMVI.h5ad')
