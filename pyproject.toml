@@ -60,9 +60,7 @@ docs=["sphinx-book-theme", "myst-nb", "sphinx", "ipython"]
 [tool.poetry.dev-dependencies]
 
 
+
 [build-system]
-build-backend = "poetry.masonry.api"
-requires = [
-  "poetry>=1.0",
-  "setuptools", # keep it here or "pip install -e" would fail
-]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
