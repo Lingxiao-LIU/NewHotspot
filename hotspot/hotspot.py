@@ -164,6 +164,9 @@ class Hotspot:
         if counts is None:
             raise ValueError(f"Counts matrix is None. layer_key='{layer_key}', adata.X shape={adata.X.shape if adata.X is not None else None}")
             
+        if issparse(counts) and not isinstance(counts, csr_matrix):
+            counts = csr_matrix(counts)  # Convert to CSR
+            
         if dense and issparse(counts):
             counts = counts.toarray()
             
@@ -172,13 +175,14 @@ class Hotspot:
             
         return counts
 
+    
     def create_knn_graph(
-        self,
-        weighted_graph=False,
-        n_neighbors=30,
-        neighborhood_factor=3,
-        approx_neighbors=True,
-        batch_aware=False,  # New parameter to toggle batch awareness
+    self,
+    weighted_graph=False,
+    n_neighbors=30,
+    neighborhood_factor=3,
+    approx_neighbors=True,
+    batch_aware=False,
     ):
         """Create's the KNN graph and graph weights, optionally batch-aware.
 
@@ -209,7 +213,7 @@ class Hotspot:
 
         if batch_aware:
             # Batch-aware k-NN computation
-            neighbors = pd.DataFrame(index=self.latent.index, columns=range(n_neighbors), dtype=int)
+            neighbors = pd.DataFrame(index=self.latent.index, columns=range(n_neighbors), dtype=object)
             weights = pd.DataFrame(index=self.latent.index, columns=range(n_neighbors), dtype=float)
             
             for batch in self.batches.unique():
@@ -233,7 +237,7 @@ class Hotspot:
                 
                 for i, cell_idx in enumerate(batch_indices):
                     # Get the actual cell indices from the batch
-                    neighbor_indices = [batch_indices.iloc[j] for j in indices[i]]
+                    neighbor_indices = [batch_indices[j] for j in indices[i]]  # Fixed line
                     neighbors.loc[cell_idx, :n_neighbors_batch] = neighbor_indices
                     
                     if weighted_graph:
@@ -244,19 +248,18 @@ class Hotspot:
                         weights.loc[cell_idx, :n_neighbors_batch] = 1.0
             
             # Fill remaining columns with -1 for neighbors and 0 for weights
-            neighbors = neighbors.fillna(-1).astype(int)
+            neighbors = neighbors.fillna(-1).astype(object)
             weights = weights.fillna(0.0)
             
         else:
-            # Non-batch-aware k-NN computation - you'd need to implement this
-            # For now, I'll provide a simple sklearn-based implementation
+            # Non-batch-aware k-NN computation
             nn = NearestNeighbors(n_neighbors=n_neighbors, metric='euclidean')
             nn.fit(self.latent)
             distances, indices = nn.kneighbors(self.latent)
             
             # Convert indices to cell names
-            neighbors = pd.DataFrame(index=self.latent.index, columns=range(n_neighbors))
-            weights = pd.DataFrame(index=self.latent.index, columns=range(n_neighbors))
+            neighbors = pd.DataFrame(index=self.latent.index, columns=range(n_neighbors), dtype=object)
+            weights = pd.DataFrame(index=self.latent.index, columns=range(n_neighbors), dtype=float)
             
             for i, cell_idx in enumerate(self.latent.index):
                 neighbor_cell_names = [self.latent.index[j] for j in indices[i]]
@@ -281,31 +284,6 @@ class Hotspot:
                 columns=weights.columns,
             )
 
-        # Apply non-redundant weights if you have that function
-        # weights = make_weights_non_redundant(neighbors.values, weights.values)
-        # weights = pd.DataFrame(weights, index=neighbors.index, columns=neighbors.columns)
-        
         self.weights = weights
 
         return self.neighbors, self.weights
-
-    # Placeholder methods for completeness
-    def _compute_hotspot(self, jobs=1):
-        pass
-
-    def compute_autocorrelations(self, jobs=1):
-        pass
-
-    def compute_local_correlations(self, genes, jobs=1):
-        pass
-
-    def create_modules(self, min_gene_threshold=20, core_only=True, fdr_threshold=0.05):
-        pass
-
-    def calculate_module_scores(self):
-        pass
-
-    def plot_local_correlations(
-        self, mod_cmap="tab10", vmin=-8, vmax=8, z_cmap="RdBu_r", yticklabels=False
-    ):
-        pass
