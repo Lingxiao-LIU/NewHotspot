@@ -6,4 +6,4 @@ except ModuleNotFoundError:
     import importlib_metadata
 
 package_name = "hotspot"
-__version__ = importlib_metadata.version(package_name)
+__version__ = "0.1.0"
