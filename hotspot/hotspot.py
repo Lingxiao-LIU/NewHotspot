@@ -490,16 +490,28 @@ class Hotspot:
         modules_to_compute = sorted([x for x in self.modules.unique() if x != -1])
         print("Computing scores for {} modules...".format(len(modules_to_compute)))
         module_scores = {}
+        
+        # Convert neighbors to numeric if needed
+        if not hasattr(self, 'neighbors_numeric'):
+            name_to_idx = {name: idx for idx, name in enumerate(self.adata.obs_names)}
+            self.neighbors_numeric = self.neighbors.applymap(
+                lambda x: name_to_idx.get(x, -1) if x != -1 else -1
+            ).astype(np.int64)
+        
         for module in tqdm(modules_to_compute):
             module_genes = self.modules.index[self.modules == module]
             counts_dense = self._counts_from_anndata(
                 self.adata[:, module_genes], self.layer_key, dense=True
             )
+            
+            # Transpose to genes × cells
+            counts_dense = counts_dense.T
+            
             scores = modules.compute_scores(
                 counts_dense,
                 self.model,
                 self.umi_counts.values,
-                self.neighbors.values,
+                self.neighbors_numeric.values,  # Use numeric neighbors
                 self.weights.values,
             )
             module_scores[module] = scores
