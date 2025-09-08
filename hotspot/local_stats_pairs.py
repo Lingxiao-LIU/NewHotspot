@@ -13,7 +13,6 @@ from .local_stats import compute_local_cov_max
 from .knn import compute_node_degree
 from .utils import center_values
 
-
 @jit(nopython=True)
 def conditional_eg2(x, neighbors, weights):
     """
@@ -39,7 +38,6 @@ def conditional_eg2(x, neighbors, weights):
 
     return out_eg2
 
-
 def conditional_eg2_slow(x, neighbors, weights):
     """
     Computes EG2 for the conditional correlation
@@ -47,8 +45,6 @@ def conditional_eg2_slow(x, neighbors, weights):
     """
     N = neighbors.shape[0]
     K = neighbors.shape[1]
-
-    # enumerate ALL neighbors of each node and the edge weight
 
     neighbors_all = [[] for _ in range(N)]
     weights_all = [[] for _ in range(N)]
@@ -98,7 +94,6 @@ def conditional_eg2_slow(x, neighbors, weights):
 
     return node_totals.sum() - node_totals_diag.sum() + dup
 
-
 @jit(nopython=True)
 def local_cov_pair(x, y, neighbors, weights):
     """Test statistic for local pair-wise autocorrelation"""
@@ -121,19 +116,16 @@ def local_cov_pair(x, y, neighbors, weights):
 
     return out
 
-
 @jit(nopython=True)
 def compute_moments_weights_pairs_slow(muA, a2, muB, b2, neighbors, weights):
     """
-    This version exaustively iterates over all |E|^2 terms
-    to compute the expected moments exactly.  Used to test
+    This version exhaustively iterates over all |E|^2 terms
+    to compute the expected moments exactly. Used to test
     the more optimized formulations that follow
     """
-
     N = neighbors.shape[0]
     K = neighbors.shape[1]
 
-    # Calculate E[G]
     EG = 0
     for i in range(N):
         for k in range(K):
@@ -142,10 +134,8 @@ def compute_moments_weights_pairs_slow(muA, a2, muB, b2, neighbors, weights):
 
             EG += wij * (muA[i] * muB[j] + muB[i] * muA[j]) / 2
 
-    # Calculate E[G^2]
     EG2 = 0
     for i in range(N):
-
         EG2_i = 0
 
         for k in range(K):
@@ -191,8 +181,7 @@ def compute_moments_weights_pairs_slow(muA, a2, muB, b2, neighbors, weights):
                                 + muA[j] * b2[i] * muA[x]
                                 + muA[j] * muB[i] * muA[i] * muB[x]
                             )
-                    else:  # i is unique since i can't equal j
-
+                    else:
                         if j == x:
                             t1 = (
                                 muA[i] * muB[j] * muA[j] * muB[y]
@@ -207,7 +196,7 @@ def compute_moments_weights_pairs_slow(muA, a2, muB, b2, neighbors, weights):
                                 + muA[j] * muB[i] * muA[x] * muB[j]
                                 + a2[j] * muB[i] * muB[x]
                             )
-                        else:  # i and j are unique, no shared nodes
+                        else:
                             t1 = (
                                 muA[i] * muB[j] * muA[x] * muB[y]
                                 + muA[i] * muB[j] * muA[y] * muB[x]
@@ -221,18 +210,12 @@ def compute_moments_weights_pairs_slow(muA, a2, muB, b2, neighbors, weights):
 
     return EG, EG2
 
-
 @jit(nopython=True)
-def compute_moments_weights_pairs(
-        muX, x2,
-        muY, y2,
-        neighbors, weights):
+def compute_moments_weights_pairs(muX, x2, muY, y2, neighbors, weights):
     """Computes the expectations of the local pair-wise test statistic"""
-
     N = neighbors.shape[0]
     K = neighbors.shape[1]
 
-    # Calculate E[G]
     EG = 0
     for i in range(N):
         for k in range(K):
@@ -241,34 +224,27 @@ def compute_moments_weights_pairs(
 
             EG += wij*(muX[i]*muY[j] + muY[i]*muX[j])/2
 
-    # Calculate E[G^2]
     EG2 = 0
     EG2 += (EG**2)
 
-    #   Get the x^2*y*z terms
     t1x = np.zeros(N)
     t2x = np.zeros(N)
-
     t1y = np.zeros(N)
     t2y = np.zeros(N)
 
     for i in range(N):
         for k in range(K):
             j = neighbors[i, k]
-
             wij = weights[i, k]
             if wij == 0:
                 continue
 
             t1x[i] += wij*muX[j]
             t2x[i] += wij**2*muX[j]**2
-
             t1x[j] += wij*muX[i]
             t2x[j] += wij**2*muX[i]**2
-
             t1y[i] += wij*muY[j]
             t2y[i] += wij**2*muY[j]**2
-
             t1y[j] += wij*muY[i]
             t2y[j] += wij**2*muY[i]**2
 
@@ -279,13 +255,10 @@ def compute_moments_weights_pairs(
         EG2 += (y2[i] - muY[i]**2)*(t1x[i] - t2x[i])/4
         EG2 += (x2[i] - muX[i]**2)*(t1y[i] - t2y[i])/4
 
-    #  Get the x^2*y^2 terms
     for i in range(N):
         for k in range(K):
             j = neighbors[i, k]
-
             wij = weights[i, k]
-
             EG2 += wij**2*(
                 x2[i]*y2[j] - (muX[i]**2)*(muY[j]**2) +
                 y2[i]*x2[j] - (muY[i]**2)*(muX[j]**2)
@@ -293,25 +266,17 @@ def compute_moments_weights_pairs(
 
     return EG, EG2
 
-
 @jit(nopython=True)
-def compute_moments_weights_pairs_fast(
-        muX, x2,
-        muY, y2,
-        neighbors, weights):
+def compute_moments_weights_pairs_fast(muX, x2, muY, y2, neighbors, weights):
     """
     Computes the expectations of the local pair-wise test statistic
-
     About 2x as fast as compute_moments_weights_pairs
     """
-
     N = neighbors.shape[0]
     K = neighbors.shape[1]
 
-    #   Get the x^2*y*z terms
     t1x = np.zeros(N)
     t2x = np.zeros(N)
-
     t1y = np.zeros(N)
     t2y = np.zeros(N)
 
@@ -336,13 +301,10 @@ def compute_moments_weights_pairs_fast(
 
             t1x[i] += wij*muX[j]
             t2x[i] += wij_2*muX_j2
-
             t1x[j] += wij*muX[i]
             t2x[j] += wij_2*muX_i2
-
             t1y[i] += wij*muY[j]
             t2y[i] += wij_2*muY_j2
-
             t1y[j] += wij*muY[i]
             t2y[j] += wij_2*muY_i2
 
@@ -351,7 +313,6 @@ def compute_moments_weights_pairs_fast(
                 y2[i]*x2[j] - (muY_i2)*(muX_j2)
             )/4
 
-    # Calculate E[G^2]
     t1x = t1x**2
     t1y = t1y**2
 
@@ -363,35 +324,76 @@ def compute_moments_weights_pairs_fast(
 
     return EG, EG2
 
-
 @jit(nopython=True)
 def compute_moments_weights_pairs_std(neighbors, weights):
     """
     Computes the expectations of the local pair-wise test statistic
-
-    This version assumes variables are standardized,
-    and so the moments are actually the same for all
-    pairs of variables
+    This version assumes variables are standardized
     """
-
     N = neighbors.shape[0]
     K = neighbors.shape[1]
 
-    # Calculate E[G]
     EG = 0
-
-    # Calculate E[G^2]
     EG2 = 0
 
-    #  Get the x^2*y^2 terms
     for i in range(N):
         for k in range(K):
             wij = weights[i, k]
-
             EG2 += (wij**2)/2
 
     return EG, EG2
 
+def apply_batch_correction(vals, mu, var, batches):
+    """Apply batch correction by centering within each batch"""
+    if batches is None:
+        return center_values(vals, mu, var)
+    corrected_vals = np.zeros_like(vals)
+    unique_batches = np.unique(batches)
+    for batch in unique_batches:
+        batch_mask = batches == batch
+        if np.sum(batch_mask) == 0:
+            continue
+        batch_vals = vals[batch_mask]
+        batch_mu = mu[batch_mask]
+        batch_var = var[batch_mask]
+        if len(batch_vals) == 0:
+            continue
+        if len(batch_vals) == 1:
+            corrected_vals[batch_mask] = 0.0
+            continue
+        corrected_vals[batch_mask] = center_values(batch_vals, batch_mu, batch_var)
+    return corrected_vals
+
+def create_centered_counts_row_batch(vals_x, model, num_umi, batches=None):
+    """Center and standardize a single gene's expression values with batch correction"""
+    if model == 'bernoulli':
+        vals_x = (vals_x > 0).astype('double')
+        mu_x, var_x, x2_x = bernoulli_model.fit_gene_model(vals_x, num_umi)
+    elif model == 'danb':
+        mu_x, var_x, x2_x = danb_model.fit_gene_model(vals_x, num_umi)
+    elif model == 'normal':
+        mu_x, var_x, x2_x = normal_model.fit_gene_model(vals_x, num_umi)
+    elif model == 'none':
+        mu_x, var_x, x2_x = none_model.fit_gene_model(vals_x, num_umi)
+    else:
+        raise Exception("Invalid Model: {}".format(model))
+
+    var_x[var_x == 0] = 1
+    if batches is not None:
+        out_x = apply_batch_correction(vals_x, mu_x, var_x, batches)
+    else:
+        out_x = (vals_x - mu_x) / (var_x**0.5)
+    out_x[out_x == 0] = 0
+    return out_x
+
+def create_centered_counts_batch(counts, model, num_umi, batches=None):
+    """Apply batch correction during centering"""
+    out = np.zeros_like(counts, dtype='double')
+    for i in tqdm(range(out.shape[0])):
+        vals_x = counts[i]
+        out_x = create_centered_counts_row_batch(vals_x, model, num_umi, batches)
+        out[i] = out_x
+    return out
 
 def create_centered_counts(counts, model, num_umi):
     """
@@ -399,73 +401,44 @@ def create_centered_counts(counts, model, num_umi):
     the selected statistical model
     """
     out = np.zeros_like(counts, dtype='double')
-
     for i in tqdm(range(out.shape[0])):
-
         vals_x = counts[i]
-
-        out_x = create_centered_counts_row(
-            vals_x, model, num_umi)
-
+        out_x = create_centered_counts_row(vals_x, model, num_umi)
         out[i] = out_x
-
     return out
 
-
 def create_centered_counts_row(vals_x, model, num_umi):
-
     if model == 'bernoulli':
         vals_x = (vals_x > 0).astype('double')
-        mu_x, var_x, x2_x = bernoulli_model.fit_gene_model(
-            vals_x, num_umi)
-
+        mu_x, var_x, x2_x = bernoulli_model.fit_gene_model(vals_x, num_umi)
     elif model == 'danb':
-        mu_x, var_x, x2_x = danb_model.fit_gene_model(
-            vals_x, num_umi)
-
+        mu_x, var_x, x2_x = danb_model.fit_gene_model(vals_x, num_umi)
     elif model == 'normal':
-        mu_x, var_x, x2_x = normal_model.fit_gene_model(
-            vals_x, num_umi)
-
+        mu_x, var_x, x2_x = normal_model.fit_gene_model(vals_x, num_umi)
     elif model == 'none':
-        mu_x, var_x, x2_x = none_model.fit_gene_model(
-            vals_x, num_umi)
-
+        mu_x, var_x, x2_x = none_model.fit_gene_model(vals_x, num_umi)
     else:
         raise Exception("Invalid Model: {}".format(model))
 
     var_x[var_x == 0] = 1
-    out_x = (vals_x-mu_x)/(var_x**0.5)
+    out_x = (vals_x - mu_x) / (var_x**0.5)
     out_x[out_x == 0] = 0
-
     return out_x
 
-
-def _compute_hs_pairs_inner(row_i, counts, neighbors, weights, num_umi,
-                            model, centered, Wtot2, D):
-
+def _compute_hs_pairs_inner(row_i, counts, neighbors, weights, num_umi, model, centered, Wtot2, D):
     vals_x = counts[row_i]
-
     lc_out = np.zeros(counts.shape[0])
     lc_z_out = np.zeros(counts.shape[0])
 
     if model == 'bernoulli':
         vals_x = (vals_x > 0).astype('double')
-        mu_x, var_x, x2_x = bernoulli_model.fit_gene_model(
-            vals_x, num_umi)
-
+        mu_x, var_x, x2_x = bernoulli_model.fit_gene_model(vals_x, num_umi)
     elif model == 'danb':
-        mu_x, var_x, x2_x = danb_model.fit_gene_model(
-            vals_x, num_umi)
-
+        mu_x, var_x, x2_x = danb_model.fit_gene_model(vals_x, num_umi)
     elif model == 'normal':
-        mu_x, var_x, x2_x = normal_model.fit_gene_model(
-            vals_x, num_umi)
-
+        mu_x, var_x, x2_x = normal_model.fit_gene_model(vals_x, num_umi)
     elif model == 'none':
-        mu_x, var_x, x2_x = none_model.fit_gene_model(
-            vals_x, num_umi)
-
+        mu_x, var_x, x2_x = none_model.fit_gene_model(vals_x, num_umi)
     else:
         raise Exception("Invalid Model: {}".format(model))
 
@@ -473,29 +446,19 @@ def _compute_hs_pairs_inner(row_i, counts, neighbors, weights, num_umi,
         vals_x = center_values(vals_x, mu_x, var_x)
 
     for row_j in range(counts.shape[0]):
-
         if row_j > row_i:
             continue
-
         vals_y = counts[row_j]
 
         if model == 'bernoulli':
             vals_y = (vals_y > 0).astype('double')
-            mu_y, var_y, x2_y = bernoulli_model.fit_gene_model(
-                vals_y, num_umi)
-
+            mu_y, var_y, x2_y = bernoulli_model.fit_gene_model(vals_y, num_umi)
         elif model == 'danb':
-            mu_y, var_y, x2_y = danb_model.fit_gene_model(
-                vals_y, num_umi)
-
+            mu_y, var_y, x2_y = danb_model.fit_gene_model(vals_y, num_umi)
         elif model == 'normal':
-            mu_y, var_y, x2_y = normal_model.fit_gene_model(
-                vals_y, num_umi)
-
+            mu_y, var_y, x2_y = normal_model.fit_gene_model(vals_y, num_umi)
         elif model == 'none':
-            mu_x, var_x, x2_x = none_model.fit_gene_model(
-                vals_x, num_umi)
-
+            mu_y, var_y, x2_y = none_model.fit_gene_model(vals_y, num_umi)
         else:
             raise Exception("Invalid Model: {}".format(model))
 
@@ -505,82 +468,46 @@ def _compute_hs_pairs_inner(row_i, counts, neighbors, weights, num_umi,
         if centered:
             EG, EG2 = 0, Wtot2/2
         else:
-            EG, EG2 = compute_moments_weights_pairs_fast(mu_x, x2_x,
-                                                         mu_y, x2_y,
-                                                         neighbors, weights)
+            EG, EG2 = compute_moments_weights_pairs_fast(mu_x, x2_x, mu_y, x2_y, neighbors, weights)
 
-        lc = local_cov_pair(vals_x, vals_y,
-                            neighbors, weights)
-
+        lc = local_cov_pair(vals_x, vals_y, neighbors, weights)
         stdG = (EG2 - EG**2)**.5
-
         Z = (lc - EG) / stdG
-
         lc_out[row_j] = lc
         lc_z_out[row_j] = Z
 
     return (lc_out, lc_z_out)
 
-
-def _compute_hs_pairs_inner_centered(
-        rowpair, counts, neighbors, weights, Wtot2, D):
+def _compute_hs_pairs_inner_centered(rowpair, counts, neighbors, weights, Wtot2, D):
     """
-    This version assumes that the counts have already been modeled
-    and centered
+    This version assumes that the counts have already been modeled and centered
     """
     row_i, row_j = rowpair
-
     vals_x = counts[row_i]
     vals_y = counts[row_j]
-
     EG, EG2 = 0, Wtot2/2
-
-    lc = local_cov_pair(vals_x, vals_y,
-                        neighbors, weights)
-
+    lc = local_cov_pair(vals_x, vals_y, neighbors, weights)
     stdG = (EG2 - EG**2)**.5
-
     Z = (lc - EG) / stdG
-
     return (lc, Z)
-
 
 @jit(nopython=True)
-def _compute_hs_pairs_inner_centered_cond_sym(
-    rowpair, counts, neighbors, weights, eg2s
-):
+def _compute_hs_pairs_inner_centered_cond_sym(rowpair, counts, neighbors, weights, eg2s):
     """
-    This version assumes that the counts have already been modeled
-    and centered
+    This version assumes that the counts have already been modeled and centered
     """
     row_i, row_j = rowpair
-
     vals_x = counts[row_i]
     vals_y = counts[row_j]
-
     lc = local_cov_pair(vals_x, vals_y, neighbors, weights)*2
-
-    # Compute xy
     EG, EG2 = 0, eg2s[row_i]
-
     stdG = (EG2 - EG ** 2) ** 0.5
-
     Zxy = (lc - EG) / stdG
-
-    # Compute yx
     EG, EG2 = 0, eg2s[row_j]
-
     stdG = (EG2 - EG ** 2) ** 0.5
-
     Zyx = (lc - EG) / stdG
-
-    if abs(Zxy) < abs(Zyx):
-        Z = Zxy
-    else:
-        Z = Zyx
-
+    Z = Zxy if abs(Zxy) < abs(Zyx) else Zyx
     return (lc, Z)
-
 
 def initializer1(counts, neighbors, weights, num_umi, model, centered, Wtot2, D):
     global g_counts
@@ -600,16 +527,12 @@ def initializer1(counts, neighbors, weights, num_umi, model, centered, Wtot2, D)
     g_Wtot2 = Wtot2
     g_D = D
 
-def compute_hs_pairs(counts, neighbors, weights,
-                     num_umi, model, centered=False, jobs=1):
-
+def compute_hs_pairs(counts, neighbors, weights, num_umi, model, centered=False, jobs=1):
     genes = counts.index
-
     counts = counts.values
     neighbors = neighbors.values
     weights = weights.values
     num_umi = num_umi.values
-
     D = compute_node_degree(neighbors, weights)
     Wtot2 = (weights**2).sum()
 
@@ -640,25 +563,18 @@ def compute_hs_pairs(counts, neighbors, weights,
             )
         )
 
-    # Only have the lower triangle so we must rebuild the rest
     lcs = [x[0] for x in results]
     lc_zs = [x[1] for x in results]
-
     lcs = np.vstack(lcs)
     lc_zs = np.vstack(lc_zs)
-
     lcs = lcs + lcs.T
     lc_zs = lc_zs + lc_zs.T
-
     np.fill_diagonal(lcs, lcs.diagonal() / 2)
     np.fill_diagonal(lc_zs, lc_zs.diagonal() / 2)
-
     lc_maxs = compute_local_cov_pairs_max(D, counts)
     lcs = lcs / lc_maxs
-
     lcs = pd.DataFrame(lcs, index=genes, columns=genes)
     lc_zs = pd.DataFrame(lc_zs, index=genes, columns=genes)
-
     return lcs, lc_zs
 
 def initializer2(counts, neighbors, weights, Wtot2, D):
@@ -673,95 +589,18 @@ def initializer2(counts, neighbors, weights, Wtot2, D):
     g_Wtot2 = Wtot2
     g_D = D
 
-def compute_hs_pairs_centered(counts, neighbors, weights,
-                              num_umi, model, jobs=1):
-
+def compute_hs_pairs_centered_cond(counts, neighbors, weights, num_umi, model, jobs=1, batches=None):
+    """Compute pairwise local correlations and z-scores with batch correction"""
     genes = counts.index
-
     counts = counts.values
     neighbors = neighbors.values
     weights = weights.values
     num_umi = num_umi.values
-
-    D = compute_node_degree(neighbors, weights)
-    Wtot2 = (weights**2).sum()
-
-    counts = create_centered_counts(counts, model, num_umi)
-
-    pairs = list(itertools.combinations(range(counts.shape[0]), 2))
-
-    if jobs > 1:
-        with multiprocessing.Pool(
-            processes=jobs, 
-            initializer=initializer2,
-            initargs=[counts, neighbors, weights, Wtot2, D]
-        ) as pool:
-            results = list(
-                tqdm(
-                    pool.imap(
-                        _map_fun_parallel_pairs_centered, 
-                        pairs
-                    ),
-                    total=len(pairs)
-                )
-            )
-    else:
-        def _map_fun(rowpair):
-            return _compute_hs_pairs_inner_centered(
-                rowpair, counts, neighbors, weights, Wtot2, D)
-        results = list(
-            tqdm(
-                map(_map_fun, pairs),
-                total=len(pairs)
-            )
-        )
-
-    N = counts.shape[0]
-    pairs = np.array(pairs)
-    vals_lc = np.array([x[0] for x in results])
-    vals_z = np.array([x[1] for x in results])
-    lcs = expand_pairs(pairs, vals_lc, N)
-    lc_zs = expand_pairs(pairs, vals_z, N)
-
-    lc_maxs = compute_local_cov_pairs_max(D, counts)
-    lcs = lcs / lc_maxs
-
-    lcs = pd.DataFrame(lcs, index=genes, columns=genes)
-    lc_zs = pd.DataFrame(lc_zs, index=genes, columns=genes)
-
-    return lcs, lc_zs
-
-
-def initializer3(counts, neighbors, weights, eg2s):
-    global g_counts
-    global g_neighbors
-    global g_weights
-    global g_eg2s
-    g_counts = counts
-    g_neighbors = neighbors
-    g_weights = weights
-    g_eg2s = eg2s
-
-
-def compute_hs_pairs_centered_cond(counts, neighbors, weights,
-                                   num_umi, model, jobs=1):
-
-    genes = counts.index
-
-    counts = counts.values
-    neighbors = neighbors.values
-    weights = weights.values
-    num_umi = num_umi.values
-
     D = compute_node_degree(neighbors, weights)
 
-    counts = create_centered_counts(counts, model, num_umi)
-
+    counts = create_centered_counts_batch(counts, model, num_umi, batches)
     eg2s = np.array(
-        [
-            conditional_eg2(counts[i], neighbors, weights)
-            for i in range(counts.shape[0])
-        ]
+        [conditional_eg2(counts[i], neighbors, weights) for i in range(counts.shape[0])]
     )
 
     pairs = list(itertools.combinations(range(counts.shape[0]), 2))
@@ -798,15 +637,21 @@ def compute_hs_pairs_centered_cond(counts, neighbors, weights,
     vals_z = np.array([x[1] for x in results])
     lcs = expand_pairs(pairs, vals_lc, N)
     lc_zs = expand_pairs(pairs, vals_z, N)
-
     lc_maxs = compute_local_cov_pairs_max(D, counts)
     lcs = lcs / lc_maxs
-
     lcs = pd.DataFrame(lcs, index=genes, columns=genes)
     lc_zs = pd.DataFrame(lc_zs, index=genes, columns=genes)
-
     return lcs, lc_zs
 
+def initializer3(counts, neighbors, weights, eg2s):
+    global g_counts
+    global g_neighbors
+    global g_weights
+    global g_eg2s
+    g_counts = counts
+    g_neighbors = neighbors
+    g_weights = weights
+    g_eg2s = eg2s
 
 def _map_fun_parallel_pairs(row_i):
     global g_neighbors
@@ -821,18 +666,14 @@ def _map_fun_parallel_pairs(row_i):
         row_i, g_counts, g_neighbors, g_weights, g_num_umi,
         g_model, g_centered, g_Wtot2, g_D)
 
-
 def _map_fun_parallel_pairs_centered(rowpair):
     global g_neighbors
     global g_weights
-    global g_num_umi
-    global g_model
     global g_Wtot2
     global g_D
     global g_counts
     return _compute_hs_pairs_inner_centered(
         rowpair, g_counts, g_neighbors, g_weights, g_Wtot2, g_D)
-
 
 def _map_fun_parallel_pairs_centered_cond(rowpair):
     global g_neighbors
@@ -840,39 +681,28 @@ def _map_fun_parallel_pairs_centered_cond(rowpair):
     global g_counts
     global g_eg2s
     return _compute_hs_pairs_inner_centered_cond_sym(
-        rowpair, g_counts, g_neighbors, g_weights, g_eg2s
-    )
-
+        rowpair, g_counts, g_neighbors, g_weights, g_eg2s)
 
 @njit
 def expand_pairs(pairs, vals, N):
-
     out = np.zeros((N, N))
-
     for i in range(len(pairs)):
-
         x = pairs[i, 0]
         y = pairs[i, 1]
         v = vals[i]
-
         out[x, y] = v
         out[y, x] = v
-
     return out
-
 
 def compute_local_cov_pairs_max(node_degrees, counts):
     """
     For a Genes x Cells count matrix, compute the maximal pair-wise correlation
     between any two genes
     """
-
     N_GENES = counts.shape[0]
-
     gene_maxs = np.zeros(N_GENES)
     for i in range(N_GENES):
         gene_maxs[i] = compute_local_cov_max(node_degrees, counts[i])
-
     result = gene_maxs.reshape((-1, 1)) + gene_maxs.reshape((1, -1))
     result = result / 2
     return result
