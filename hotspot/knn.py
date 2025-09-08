@@ -7,23 +7,10 @@ from tqdm import tqdm
 from pynndescent import NNDescent
 import warnings
 
-
 def neighbors_and_weights(data, n_neighbors=30, neighborhood_factor=3, approx_neighbors=True):
     """
-    Computes nearest neighbors and associated weights for data
-    Uses euclidean distance between rows of `data`
-
-    Parameters
-    ==========
-    data: pandas.Dataframe num_cells x num_features
-
-    Returns
-    =======
-    neighbors:      pandas.Dataframe num_cells x n_neighbors
-    weights:  pandas.Dataframe num_cells x n_neighbors
-
+    Original function - computes nearest neighbors and associated weights for data
     """
-
     coords = data.values
 
     if approx_neighbors:
@@ -45,6 +32,87 @@ def neighbors_and_weights(data, n_neighbors=30, neighborhood_factor=3, approx_ne
                            columns=neighbors.columns)
 
     return neighbors, weights
+
+def neighbors_and_weights_batch_aware(
+    data, 
+    n_neighbors=30, 
+    neighborhood_factor=3, 
+    approx_neighbors=True,
+    batch_key=None,
+    adata=None
+):
+    """
+    Computes nearest neighbors within batches to handle batch effects
+    """
+    if batch_key is None or adata is None:
+        # Fall back to original function
+        return neighbors_and_weights(data, n_neighbors, neighborhood_factor, approx_neighbors)
+    
+    batch_labels = adata.obs[batch_key]
+    unique_batches = batch_labels.unique()
+    
+    all_neighbors = []
+    all_weights = []
+    global_index_map = {cell: idx for idx, cell in enumerate(data.index)}
+    
+    for batch in unique_batches:
+        batch_mask = batch_labels == batch
+        batch_data = data[batch_mask]
+        batch_cells = batch_data.index
+        
+        if len(batch_data) < n_neighbors:
+            warnings.warn(f"Batch {batch} has fewer cells ({len(batch_data)}) than n_neighbors ({n_neighbors})")
+            batch_n_neighbors = max(1, len(batch_data) - 1)
+        else:
+            batch_n_neighbors = n_neighbors
+        
+        # Compute neighbors within batch
+        coords = batch_data.values
+        
+        if approx_neighbors and batch_n_neighbors > 1:
+            index = NNDescent(coords, n_neighbors=batch_n_neighbors + 1)
+            ind, dist = index.neighbor_graph
+            ind, dist = ind[:, 1:], dist[:, 1:]  # Remove self
+        else:
+            if batch_n_neighbors > 0:
+                nbrs = NearestNeighbors(n_neighbors=batch_n_neighbors, algorithm="ball_tree").fit(coords)
+                dist, ind = nbrs.kneighbors()
+            else:
+                # Handle edge case with single cell
+                dist = np.zeros((1, 1))
+                ind = np.zeros((1, 1), dtype=int)
+        
+        # Convert local indices to global cell names
+        batch_neighbors = pd.DataFrame(index=batch_cells, columns=range(n_neighbors))
+        batch_weights = pd.DataFrame(index=batch_cells, columns=range(n_neighbors))
+        
+        for i, cell in enumerate(batch_cells):
+            if batch_n_neighbors > 0 and i < len(ind):
+                neighbor_indices = ind[i]
+                neighbor_cells = [batch_cells[j] if j < len(batch_cells) else batch_cells[0] for j in neighbor_indices]
+                neighbor_weights = compute_weights(dist[i:i+1], neighborhood_factor)[0]
+                
+                # Pad to n_neighbors if necessary
+                while len(neighbor_cells) < n_neighbors:
+                    neighbor_cells.append(neighbor_cells[0] if neighbor_cells else cell)
+                    neighbor_weights = np.pad(neighbor_weights, (0, n_neighbors - len(neighbor_weights)), 'constant')
+                
+                batch_neighbors.loc[cell, :len(neighbor_cells)] = neighbor_cells[:n_neighbors]
+                batch_weights.loc[cell, :len(neighbor_weights)] = neighbor_weights[:n_neighbors]
+        
+        all_neighbors.append(batch_neighbors)
+        all_weights.append(batch_weights)
+    
+    # Combine all batches
+    neighbors = pd.concat(all_neighbors).reindex(data.index)
+    weights = pd.concat(all_weights).reindex(data.index)
+    
+    # Fill any remaining NaNs
+    neighbors = neighbors.fillna(neighbors.iloc[0, 0])  # Fill with first valid neighbor
+    weights = weights.fillna(0.0)
+    
+    return neighbors, weights
+
 
 
 def neighbors_and_weights_from_distances(
