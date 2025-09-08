@@ -165,26 +165,12 @@ def compute_local_cov_max(node_degrees, vals):
 
     return tot / 2
 
-def initializer(neighbors, weights, num_umi, model, centered, Wtot2, D):
-    global g_neighbors
-    global g_weights
-    global g_num_umi
-    global g_model
-    global g_centered
-    global g_Wtot2
-    global g_D
-    g_neighbors = neighbors
-    g_weights = weights
-    g_num_umi = num_umi
-    g_model = model
-    g_centered = centered
-    g_Wtot2 = Wtot2
-    g_D = D
 
 def compute_hs(
-    counts, neighbors, weights, num_umi, model, genes, centered=False, jobs=1
+    counts, neighbors, weights, num_umi, model, genes, centered=False, jobs=1, batches=None
 ):
-
+    """Modified to support batch correction"""
+    
     neighbors = neighbors.values
     weights = weights.values
     num_umi = num_umi.values
@@ -198,13 +184,13 @@ def compute_hs(
             if issparse(vals):
                 vals = vals.toarray().ravel()
             vals = vals.astype("double")
-            yield vals
+            yield vals, batches  # Include batch information
 
     if jobs > 1:
         with multiprocessing.Pool(
             processes=jobs, 
             initializer=initializer, 
-            initargs=[neighbors, weights, num_umi, model, centered, Wtot2, D]
+            initargs=[neighbors, weights, num_umi, model, centered, Wtot2, D, batches]
         ) as pool:
             results = list(
                 tqdm(
@@ -216,10 +202,10 @@ def compute_hs(
                 )
             )
     else:
-
-        def _map_fun(vals):
+        def _map_fun(vals_batch):
+            vals, batch_info = vals_batch
             return _compute_hs_inner(
-                vals, neighbors, weights, num_umi, model, centered, Wtot2, D
+                vals, neighbors, weights, num_umi, model, centered, Wtot2, D, batch_info
             )
 
         results = list(tqdm(map(_map_fun, data_iter()), total=counts.shape[0]))
@@ -232,20 +218,14 @@ def compute_hs(
     results = results.sort_values("Z", ascending=False)
     results.index.name = "Gene"
 
-    results = results[["C", "Z", "Pval", "FDR"]]  # Remove other columns
+    results = results[["C", "Z", "Pval", "FDR"]]
 
     return results
 
 
-def _compute_hs_inner(vals, neighbors, weights, num_umi, model, centered, Wtot2, D):
-    """
-    Note, since this is an inner function, for parallelization to work well
-    none of the contents of the function can use MKL or OPENBLAS threads.
-    Or else we open too many.  Because of this, some simple numpy operations
-    are re-implemented using numba instead as it's difficult to control
-    the number of threads in numpy after it's imported
-    """
-
+def _compute_hs_inner(vals, neighbors, weights, num_umi, model, centered, Wtot2, D, batches=None):
+    """Modified inner function to handle batch correction"""
+    
     if model == "bernoulli":
         vals = (vals > 0).astype("double")
         mu, var, x2 = bernoulli_model.fit_gene_model(vals, num_umi)
@@ -258,7 +238,10 @@ def _compute_hs_inner(vals, neighbors, weights, num_umi, model, centered, Wtot2,
     else:
         raise Exception("Invalid Model: {}".format(model))
 
-    if centered:
+    # Apply batch correction if batches are provided
+    if batches is not None and centered:
+        vals = apply_batch_correction(vals, mu, var, batches)
+    elif centered:
         vals = center_values(vals, mu, var)
 
     G = local_cov_weights(vals, neighbors, weights)
@@ -277,8 +260,35 @@ def _compute_hs_inner(vals, neighbors, weights, num_umi, model, centered, Wtot2,
 
     return [G, EG, stdG, Z, C]
 
+def apply_batch_correction(vals, mu, var, batches):
+    """Apply batch correction by centering within each batch"""
+    if batches is None:
+        return center_values(vals, mu, var)
+    
+    corrected_vals = np.zeros_like(vals)
+    unique_batches = np.unique(batches)
+    
+    for batch in unique_batches:
+        batch_mask = batches == batch
+        if np.sum(batch_mask) == 0:
+            continue
+            
+        batch_vals = vals[batch_mask]
+        batch_mu = mu[batch_mask]
+        batch_var = var[batch_mask]
+        
+        # Handle edge cases
+        if len(batch_vals) == 0:
+            continue
+        if len(batch_vals) == 1:
+            corrected_vals[batch_mask] = 0.0
+            continue
+            
+        corrected_vals[batch_mask] = center_values(batch_vals, batch_mu, batch_var)
+    
+    return corrected_vals
 
-def _map_fun_parallel(vals):
+def initializer(neighbors, weights, num_umi, model, centered, Wtot2, D, batches=None):
     global g_neighbors
     global g_weights
     global g_num_umi
@@ -286,6 +296,26 @@ def _map_fun_parallel(vals):
     global g_centered
     global g_Wtot2
     global g_D
+    global g_batches
+    g_neighbors = neighbors
+    g_weights = weights
+    g_num_umi = num_umi
+    g_model = model
+    g_centered = centered
+    g_Wtot2 = Wtot2
+    g_D = D
+    g_batches = batches
+
+def _map_fun_parallel(vals_batch):
+    global g_neighbors
+    global g_weights
+    global g_num_umi
+    global g_model
+    global g_centered
+    global g_Wtot2
+    global g_D
+    global g_batches
+    vals, batch_info = vals_batch
     return _compute_hs_inner(
-        vals, g_neighbors, g_weights, g_num_umi, g_model, g_centered, g_Wtot2, g_D
+        vals, g_neighbors, g_weights, g_num_umi, g_model, g_centered, g_Wtot2, g_D, g_batches
     )
