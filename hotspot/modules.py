@@ -3,7 +3,7 @@ import pandas as pd
 
 from sklearn.decomposition import PCA
 from .utils import neighbor_smoothing_row
-from .local_stats_pairs import create_centered_counts_row
+from .local_stats_pairs import create_centered_counts_row, create_centered_counts_row_batch
 from scipy.spatial.distance import squareform
 from scipy.cluster.hierarchy import linkage
 from scipy.stats import norm
@@ -11,17 +11,14 @@ from statsmodels.stats.multitest import multipletests
 
 
 def compute_scores(
-        counts_sub, model, num_umi, neighbors, weights):
-    """
-    counts_sub: row-subset of counts matrix with genes in the module
-    """
+        counts_sub, model, num_umi, neighbors, weights, batches=None):
+    """Modified to support batch correction"""
 
     cc_smooth = np.zeros_like(counts_sub, dtype=np.float64)
 
     for i in range(counts_sub.shape[0]):
-
         counts_row = counts_sub[i, :]
-        centered_row = create_centered_counts_row(counts_row, model, num_umi)
+        centered_row = create_centered_counts_row_batch(counts_row, model, num_umi, batches)
         smooth_row = neighbor_smoothing_row(
             centered_row, neighbors, weights, _lambda=.9)
 
@@ -32,7 +29,7 @@ def compute_scores(
     model = PCA(n_components=1)
     scores = model.fit_transform(pca_data.T)
 
-    sign = model.components_.mean()  # may need to flip
+    sign = model.components_.mean()
     if sign < 0:
         scores = scores * -1
 
@@ -304,34 +301,14 @@ def assign_modules_core(Z, leaf_labels, offset, MIN_THRESHOLD=10, Z_THRESHOLD=3)
     return out_clusters
 
 
-def compute_modules(Z_scores, min_gene_threshold=10, fdr_threshold=None, z_threshold=None, core_only=False):
-    """
-    Assigns modules from the gene pair-wise Z-scores
-
-    Parameters
-    ----------
-    Z_scores: pandas.DataFrame
-        local correlations between genes
-    min_gene_threshold: int, optional
-        minimum number of genes to create a module
-    fdr_threshold: float, optional
-        used to determine minimally significant z_score
-    core_only: bool, optional
-        whether or not to assign unassigned genes to a module
-
-    Returns
-    -------
-    modules: pandas.Series
-        maps gene id to module id
-    linkage: numpy.ndarray
-        Linkage matrix in the format used by scipy.cluster.hierarchy.linkage
-
-    """
-
-    # Determine Z_Threshold from FDR threshold
-
+def compute_modules(Z_scores, min_gene_threshold=10, fdr_threshold=None, z_threshold=None, core_only=False, batches=None):
+    """Modified to support batch information (for future batch-aware clustering)"""
+    
+    # For now, the module computation logic remains the same
+    # But we keep the batches parameter for consistency and future extensions
+    
     if z_threshold is None:
-        allZ = squareform(  # just in case slightly not symmetric
+        allZ = squareform(
             Z_scores.values/2 + Z_scores.values.T/2
         )
         allZ = np.sort(allZ)
@@ -343,7 +320,6 @@ def compute_modules(Z_scores, min_gene_threshold=10, fdr_threshold=None, z_thres
         else:
             z_threshold = allZ[-1]+1
 
-    # Compute the linkage matrix
     dd = Z_scores.copy().values
     np.fill_diagonal(dd, 0)
     condensed = squareform(dd)*-1
@@ -351,7 +327,6 @@ def compute_modules(Z_scores, min_gene_threshold=10, fdr_threshold=None, z_thres
     condensed += offset
     Z = linkage(condensed, method='average')
 
-    # Linkage -> Modules
     if core_only:
         out_clusters = assign_modules_core(
             Z, offset=offset, MIN_THRESHOLD=min_gene_threshold,
@@ -361,7 +336,6 @@ def compute_modules(Z_scores, min_gene_threshold=10, fdr_threshold=None, z_thres
             Z, offset=offset, MIN_THRESHOLD=min_gene_threshold,
             leaf_labels=Z_scores.index, Z_THRESHOLD=z_threshold)
 
-    # Sort the leaves of the linkage matrix (for plotting)
     mean_dists = np.zeros(Z.shape[0])
     calc_mean_dists(Z, Z.shape[0]-1, mean_dists)
     linkage_out = Z.copy()
@@ -370,3 +344,4 @@ def compute_modules(Z_scores, min_gene_threshold=10, fdr_threshold=None, z_thres
     out_clusters.name = 'Module'
 
     return out_clusters, linkage_out
+
